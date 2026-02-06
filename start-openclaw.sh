@@ -240,10 +240,10 @@ if (process.env.OPENCLAW_GATEWAY_TOKEN) {
     config.gateway.auth.token = process.env.OPENCLAW_GATEWAY_TOKEN;
 }
 
-if (process.env.OPENCLAW_DEV_MODE === 'true') {
-    config.gateway.controlUi = config.gateway.controlUi || {};
-    config.gateway.controlUi.allowInsecureAuth = true;
-}
+// Always set allowInsecureAuth explicitly to ensure it matches current env
+// This is important when restoring config from R2 that may have had DEV_MODE=true previously
+config.gateway.controlUi = config.gateway.controlUi || {};
+config.gateway.controlUi.allowInsecureAuth = (process.env.OPENCLAW_DEV_MODE === 'true');
 
 // Legacy AI Gateway base URL override — patch into provider config
 // (only needed when using AI_GATEWAY_BASE_URL, not native cloudflare-ai-gateway)
