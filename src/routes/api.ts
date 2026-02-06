@@ -26,14 +26,15 @@ adminApi.use('*', createAccessMiddleware({ type: 'json' }));
 // GET /api/admin/devices - List pending and paired devices
 adminApi.get('/devices', async (c) => {
   const sandbox = c.get('sandbox');
+  const token = c.env.MOLTBOT_GATEWAY_TOKEN;
 
   try {
     // Ensure moltbot is running first
     await ensureMoltbotGateway(sandbox, c.env);
 
     // Run OpenClaw CLI to list devices
-    // Must specify --url to connect to the gateway running in the same container
-    const proc = await sandbox.startProcess('openclaw devices list --json --url ws://localhost:18789');
+    // Must specify --url and --token to connect to the gateway running in the same container
+    const proc = await sandbox.startProcess(`openclaw devices list --json --url ws://localhost:18789 --token ${token}`);
     await waitForProcess(proc, CLI_TIMEOUT_MS);
 
     const logs = await proc.getLogs();
@@ -75,6 +76,7 @@ adminApi.get('/devices', async (c) => {
 adminApi.post('/devices/:requestId/approve', async (c) => {
   const sandbox = c.get('sandbox');
   const requestId = c.req.param('requestId');
+  const token = c.env.MOLTBOT_GATEWAY_TOKEN;
 
   if (!requestId) {
     return c.json({ error: 'requestId is required' }, 400);
@@ -85,7 +87,7 @@ adminApi.post('/devices/:requestId/approve', async (c) => {
     await ensureMoltbotGateway(sandbox, c.env);
 
     // Run OpenClaw CLI to approve the device
-    const proc = await sandbox.startProcess(`openclaw devices approve ${requestId} --url ws://localhost:18789`);
+    const proc = await sandbox.startProcess(`openclaw devices approve ${requestId} --url ws://localhost:18789 --token ${token}`);
     await waitForProcess(proc, CLI_TIMEOUT_MS);
 
     const logs = await proc.getLogs();
@@ -111,13 +113,14 @@ adminApi.post('/devices/:requestId/approve', async (c) => {
 // POST /api/admin/devices/approve-all - Approve all pending devices
 adminApi.post('/devices/approve-all', async (c) => {
   const sandbox = c.get('sandbox');
+  const token = c.env.MOLTBOT_GATEWAY_TOKEN;
 
   try {
     // Ensure moltbot is running first
     await ensureMoltbotGateway(sandbox, c.env);
 
     // First, get the list of pending devices
-    const listProc = await sandbox.startProcess('openclaw devices list --json --url ws://localhost:18789');
+    const listProc = await sandbox.startProcess(`openclaw devices list --json --url ws://localhost:18789 --token ${token}`);
     await waitForProcess(listProc, CLI_TIMEOUT_MS);
 
     const listLogs = await listProc.getLogs();
@@ -144,7 +147,7 @@ adminApi.post('/devices/approve-all', async (c) => {
 
     for (const device of pending) {
       try {
-        const approveProc = await sandbox.startProcess(`openclaw devices approve ${device.requestId} --url ws://localhost:18789`);
+        const approveProc = await sandbox.startProcess(`openclaw devices approve ${device.requestId} --url ws://localhost:18789 --token ${token}`);
         await waitForProcess(approveProc, CLI_TIMEOUT_MS);
 
         const approveLogs = await approveProc.getLogs();
