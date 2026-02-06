@@ -20,6 +20,16 @@ BACKUP_DIR="/data/moltbot"
 echo "Config directory: $CONFIG_DIR"
 echo "Backup directory: $BACKUP_DIR"
 
+# Debug: Show available environment variables for API configuration
+echo "=== Environment Configuration ==="
+echo "AI_GATEWAY_BASE_URL: ${AI_GATEWAY_BASE_URL:-UNSET}"
+echo "AI_GATEWAY_API_KEY: ${AI_GATEWAY_API_KEY:+SET}"
+echo "OPENAI_API_KEY: ${OPENAI_API_KEY:+SET}"
+echo "OPENAI_BASE_URL: ${OPENAI_BASE_URL:-UNSET}"
+echo "ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:+SET}"
+echo "CLOUDFLARE_AI_GATEWAY_API_KEY: ${CLOUDFLARE_AI_GATEWAY_API_KEY:+SET}"
+echo "================================="
+
 mkdir -p "$CONFIG_DIR"
 
 # ============================================================
@@ -143,12 +153,12 @@ if [ ! -f "$CONFIG_FILE" ]; then
         echo "  - CLOUDFLARE_AI_GATEWAY_API_KEY + CF_AI_GATEWAY_ACCOUNT_ID + CF_AI_GATEWAY_GATEWAY_ID"
         echo "  - ANTHROPIC_API_KEY"
         echo "  - OPENAI_API_KEY"
-        echo "Current environment:"
-        echo "  OPENAI_API_KEY: ${OPENAI_API_KEY:+SET}"
-        echo "  OPENAI_BASE_URL: ${OPENAI_BASE_URL:-UNSET}"
         exit 1
     fi
 
+    echo "Auth configuration: $AUTH_ARGS"
+    echo "Running onboard..."
+    
     openclaw onboard --non-interactive --accept-risk \
         --mode local \
         $AUTH_ARGS \
@@ -157,8 +167,22 @@ if [ ! -f "$CONFIG_FILE" ]; then
         --skip-channels \
         --skip-skills \
         --skip-health
+    
+    ONBOARD_EXIT=$?
+    if [ $ONBOARD_EXIT -ne 0 ]; then
+        echo "ERROR: Onboard failed with exit code $ONBOARD_EXIT"
+        exit 1
+    fi
 
-    echo "Onboard completed"
+    # Verify onboard created a valid config
+    if [ ! -f "$CONFIG_FILE" ]; then
+        echo "ERROR: Onboard completed but no config file was created"
+        exit 1
+    fi
+    
+    echo "Onboard completed successfully"
+    echo "Config file contents:"
+    cat "$CONFIG_FILE"
 else
     echo "Using existing config"
 fi
@@ -180,12 +204,31 @@ let config = {};
 
 try {
     config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    console.log('Loaded existing config');
+    
+    // Check for known validation issues and fix them BEFORE anything else
+    if (config.models?.providers) {
+        for (const [providerName, providerConfig] of Object.entries(config.models.providers)) {
+            if (providerConfig && typeof providerConfig === 'object') {
+                // Fix missing models array (causes "expected array, received undefined")
+                if (!Array.isArray(providerConfig.models)) {
+                    console.log(`Fixing missing/invalid models array for provider: ${providerName}`);
+                    providerConfig.models = [];
+                }
+            }
+        }
+        // Write the fix immediately to prevent any race condition
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+        console.log('Wrote fixed config to disk');
+    }
 } catch (e) {
-    console.log('Starting with empty config');
+    console.log('Starting with empty config:', e.message);
 }
 
 config.gateway = config.gateway || {};
 config.channels = config.channels || {};
+config.models = config.models || {};
+config.models.providers = config.models.providers || {};
 
 // Gateway configuration
 config.gateway.port = 18789;
@@ -211,18 +254,32 @@ if (process.env.ANTHROPIC_BASE_URL && process.env.ANTHROPIC_API_KEY) {
     config.models.providers.anthropic = config.models.providers.anthropic || {};
     config.models.providers.anthropic.baseUrl = baseUrl;
     config.models.providers.anthropic.apiKey = process.env.ANTHROPIC_API_KEY;
+    // Ensure models array exists (required by OpenClaw)
+    if (!config.models.providers.anthropic.models) {
+        config.models.providers.anthropic.models = [];
+    }
     console.log('Patched Anthropic provider with base URL:', baseUrl);
 }
 
-// OpenAI provider base URL override (derived from AI_GATEWAY_BASE_URL by Worker env.ts)
-// This will be set when Worker has AI_GATEWAY_BASE_URL + OPENAI_API_KEY configured
+// If using OpenAI-compatible proxy (AI Gateway), remove incomplete Anthropic provider
+// This prevents config validation errors from old/restored configs
 if (process.env.OPENAI_BASE_URL && process.env.OPENAI_API_KEY) {
+    // Clean up any incomplete Anthropic provider that might cause validation errors
+    if (config.models?.providers?.anthropic && !config.models.providers.anthropic.models) {
+        console.log('Removing incomplete Anthropic provider config (using OpenAI proxy instead)');
+        delete config.models.providers.anthropic;
+    }
+    
     const baseUrl = process.env.OPENAI_BASE_URL.replace(/\/+$/, '');
     config.models = config.models || {};
     config.models.providers = config.models.providers || {};
     config.models.providers.openai = config.models.providers.openai || {};
     config.models.providers.openai.baseUrl = baseUrl;
     config.models.providers.openai.apiKey = process.env.OPENAI_API_KEY;
+    // Ensure models array exists (required by OpenClaw)
+    if (!config.models.providers.openai.models) {
+        config.models.providers.openai.models = [];
+    }
     console.log('Patched OpenAI provider with proxy base URL:', baseUrl);
 }
 
