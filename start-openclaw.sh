@@ -113,15 +113,40 @@ if [ ! -f "$CONFIG_FILE" ]; then
     echo "No existing config found, running openclaw onboard..."
 
     AUTH_ARGS=""
-    if [ -n "$CLOUDFLARE_AI_GATEWAY_API_KEY" ] && [ -n "$CF_AI_GATEWAY_ACCOUNT_ID" ] && [ -n "$CF_AI_GATEWAY_GATEWAY_ID" ]; then
+    if [ -n "$AI_GATEWAY_BASE_URL" ] && [ -n "$AI_GATEWAY_API_KEY" ]; then
+        # AI Gateway proxy mode: use as OpenAI-compatible endpoint
+        AUTH_ARGS="--auth-choice openai-api-key --openai-api-key $AI_GATEWAY_API_KEY"
+        if [ -n "$OPENAI_BASE_URL" ]; then
+            AUTH_ARGS="$AUTH_ARGS --openai-base-url $OPENAI_BASE_URL"
+        fi
+    elif [ -n "$CLOUDFLARE_AI_GATEWAY_API_KEY" ] && [ -n "$CF_AI_GATEWAY_ACCOUNT_ID" ] && [ -n "$CF_AI_GATEWAY_GATEWAY_ID" ]; then
         AUTH_ARGS="--auth-choice cloudflare-ai-gateway-api-key \
             --cloudflare-ai-gateway-account-id $CF_AI_GATEWAY_ACCOUNT_ID \
             --cloudflare-ai-gateway-gateway-id $CF_AI_GATEWAY_GATEWAY_ID \
             --cloudflare-ai-gateway-api-key $CLOUDFLARE_AI_GATEWAY_API_KEY"
     elif [ -n "$ANTHROPIC_API_KEY" ]; then
         AUTH_ARGS="--auth-choice apiKey --anthropic-api-key $ANTHROPIC_API_KEY"
+        if [ -n "$ANTHROPIC_BASE_URL" ]; then
+            AUTH_ARGS="$AUTH_ARGS --anthropic-base-url $ANTHROPIC_BASE_URL"
+        fi
     elif [ -n "$OPENAI_API_KEY" ]; then
         AUTH_ARGS="--auth-choice openai-api-key --openai-api-key $OPENAI_API_KEY"
+        if [ -n "$OPENAI_BASE_URL" ]; then
+            AUTH_ARGS="$AUTH_ARGS --openai-base-url $OPENAI_BASE_URL"
+        fi
+    fi
+
+    if [ -z "$AUTH_ARGS" ]; then
+        echo "ERROR: No API key configuration found."
+        echo "Please set one of:"
+        echo "  - AI_GATEWAY_BASE_URL + AI_GATEWAY_API_KEY (for OpenAI-compatible proxy)"
+        echo "  - CLOUDFLARE_AI_GATEWAY_API_KEY + CF_AI_GATEWAY_ACCOUNT_ID + CF_AI_GATEWAY_GATEWAY_ID"
+        echo "  - ANTHROPIC_API_KEY"
+        echo "  - OPENAI_API_KEY"
+        echo "Current environment:"
+        echo "  OPENAI_API_KEY: ${OPENAI_API_KEY:+SET}"
+        echo "  OPENAI_BASE_URL: ${OPENAI_BASE_URL:-UNSET}"
+        exit 1
     fi
 
     openclaw onboard --non-interactive --accept-risk \
@@ -189,6 +214,18 @@ if (process.env.ANTHROPIC_BASE_URL && process.env.ANTHROPIC_API_KEY) {
     console.log('Patched Anthropic provider with base URL:', baseUrl);
 }
 
+// OpenAI provider base URL override (derived from AI_GATEWAY_BASE_URL by Worker env.ts)
+// This will be set when Worker has AI_GATEWAY_BASE_URL + OPENAI_API_KEY configured
+if (process.env.OPENAI_BASE_URL && process.env.OPENAI_API_KEY) {
+    const baseUrl = process.env.OPENAI_BASE_URL.replace(/\/+$/, '');
+    config.models = config.models || {};
+    config.models.providers = config.models.providers || {};
+    config.models.providers.openai = config.models.providers.openai || {};
+    config.models.providers.openai.baseUrl = baseUrl;
+    config.models.providers.openai.apiKey = process.env.OPENAI_API_KEY;
+    console.log('Patched OpenAI provider with proxy base URL:', baseUrl);
+}
+
 // Telegram configuration
 if (process.env.TELEGRAM_BOT_TOKEN) {
     config.channels.telegram = config.channels.telegram || {};
@@ -201,6 +238,18 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
     } else if (telegramDmPolicy === 'open') {
         config.channels.telegram.allowFrom = ['*'];
     }
+}
+
+// web search via Brave
+if (process.env.BRAVE_API_KEY) {
+  config.tools.web = config.tools.web || {};
+  config.tools.web.search = config.tools.web.search || {};
+  config.tools.web.search.enabled = true;
+  config.tools.web.search.provider = 'brave';
+  config.tools.web.search.maxResults = 5;
+  config.tools.web.search.timeoutSeconds = 20;
+  config.tools.web.search.cacheTtlMinutes = 15;
+  config.tools.web.search.apiKey = process.env.BRAVE_API_KEY;
 }
 
 // Discord configuration
