@@ -299,6 +299,7 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
 
 // web search via Brave
 if (process.env.BRAVE_API_KEY) {
+  config.tools = config.tools || {};
   config.tools.web = config.tools.web || {};
   config.tools.web.search = config.tools.web.search || {};
   config.tools.web.search.enabled = true;
