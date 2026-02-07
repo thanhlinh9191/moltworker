@@ -250,25 +250,69 @@ if (proxyBaseUrl && proxyApiKey) {
     config.models.providers.openai.apiKey = proxyApiKey;
     config.models.providers.openai.api = 'openai-completions';  // Required for custom OpenAI-compatible proxies
     
-    // Configure available models for the proxy - ALL ProxyPal models
-    // Fetched from: curl https://proxypal-api.stackdeep.dev/v1/models
-    config.models.providers.openai.models = [
-        { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', contextWindow: 1000000, reasoning: false, input: ['text'] },
-        { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', contextWindow: 1000000, reasoning: false, input: ['text'] },
-        { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash', contextWindow: 1000000, reasoning: false, input: ['text'] },
-        { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro', contextWindow: 1000000, reasoning: false, input: ['text'] },
-        { id: 'gemini-3-pro-image-preview', name: 'Gemini 3 Pro Image', contextWindow: 1000000, reasoning: false, input: ['text', 'image'] },
-        { id: 'gemini-claude-opus-4-5-thinking', name: 'Claude Opus 4.5 Thinking', contextWindow: 1000000, reasoning: true, input: ['text'] },
-        { id: 'gemini-claude-sonnet-4-5', name: 'Claude Sonnet 4.5', contextWindow: 1000000, reasoning: false, input: ['text'] },
-        { id: 'gemini-claude-sonnet-4-5-thinking', name: 'Claude Sonnet 4.5 Thinking', contextWindow: 1000000, reasoning: true, input: ['text'] },
-        { id: 'gpt-oss-120b-medium', name: 'GPT OSS 120B', contextWindow: 1000000, reasoning: false, input: ['text'] },
-        { id: 'tab_flash_lite_preview', name: 'Tab Flash Lite', contextWindow: 1000000, reasoning: false, input: ['text'] }
-    ];
+    // Dynamically fetch models from the proxy API
+    // We'll do this synchronously using child_process since we're in a startup script
+    const { execSync } = require('child_process');
+    let fetchedModels = [];
+    try {
+        const modelsUrl = baseUrl + '/models';
+        const result = execSync(
+            \`curl -s -H "Authorization: Bearer \${proxyApiKey}" "\${modelsUrl}"\`,
+            { encoding: 'utf8', timeout: 10000 }
+        );
+        const modelsResponse = JSON.parse(result);
+        if (modelsResponse.data && Array.isArray(modelsResponse.data)) {
+            fetchedModels = modelsResponse.data.map(m => {
+                const id = m.id;
+                // Determine properties based on model name patterns
+                const isThinking = id.includes('thinking');
+                const isImage = id.includes('image');
+                const isClaude = id.includes('claude');
+                const isKimi = id.includes('kimi');
+                const isGemini = id.includes('gemini');
+                
+                // Set context window based on model type
+                let contextWindow = 128000; // default
+                if (isGemini) contextWindow = 1000000;
+                else if (isClaude) contextWindow = 200000;
+                else if (isKimi) contextWindow = 128000;
+                
+                // Generate friendly name from id
+                const name = id.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+                    .replace(/(\d)\.(\d)/g, '$1.$2'); // preserve version numbers
+                
+                return {
+                    id,
+                    name: m.name || name,
+                    contextWindow: m.context_length || contextWindow,
+                    reasoning: isThinking,
+                    input: isImage ? ['text', 'image'] : ['text']
+                };
+            });
+        }
+    } catch (e) {
+        // Failed to fetch models, will use fallback
+    }
     
-    // Set default model to gemini-claude-sonnet-4-5-thinking
+    // Use fetched models or fallback to a minimal default
+    if (fetchedModels.length > 0) {
+        config.models.providers.openai.models = fetchedModels;
+    } else {
+        // Fallback: minimal model list if API fetch fails
+        config.models.providers.openai.models = [
+            { id: 'claude-sonnet-4-5-thinking', name: 'Claude Sonnet 4.5 Thinking', contextWindow: 200000, reasoning: true, input: ['text'] },
+            { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', contextWindow: 1000000, reasoning: false, input: ['text'] }
+        ];
+    }
+    
+    // Set default model - prefer claude-sonnet-4-5-thinking if available, else first model
+    const defaultModelId = fetchedModels.find(m => m.id === 'claude-sonnet-4-5-thinking')?.id 
+        || fetchedModels.find(m => m.id.includes('sonnet'))?.id
+        || fetchedModels[0]?.id 
+        || 'claude-sonnet-4-5-thinking';
     config.agents = config.agents || {};
     config.agents.defaults = config.agents.defaults || {};
-    config.agents.defaults.model = { primary: 'openai/gemini-claude-sonnet-4-5-thinking' };
+    config.agents.defaults.model = { primary: 'openai/' + defaultModelId };
 }
 
 // Telegram configuration
