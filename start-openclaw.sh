@@ -377,6 +377,14 @@ rm -f "$CONFIG_DIR/gateway.lock" 2>/dev/null || true
 
 echo "Dev mode: ${OPENCLAW_DEV_MODE:-false}"
 
+# Validate config before starting
+echo "Validating config..."
+if ! node -e "const c = require('$CONFIG_FILE'); console.log('Config loaded, providers:', Object.keys(c.models?.providers || {}))"; then
+    echo "ERROR: Config validation failed!"
+    cat "$CONFIG_FILE"
+    exit 1
+fi
+
 if [ -n "$OPENCLAW_GATEWAY_TOKEN" ]; then
     echo "Starting gateway with token auth..."
     exec openclaw gateway --port 18789 --verbose --allow-unconfigured --bind lan --token "$OPENCLAW_GATEWAY_TOKEN"
