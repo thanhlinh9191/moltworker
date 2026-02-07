@@ -17,19 +17,6 @@ CONFIG_DIR="/root/.openclaw"
 CONFIG_FILE="$CONFIG_DIR/openclaw.json"
 BACKUP_DIR="/data/moltbot"
 
-echo "Config directory: $CONFIG_DIR"
-echo "Backup directory: $BACKUP_DIR"
-
-# Debug: Show available environment variables for API configuration
-echo "=== Environment Configuration ==="
-echo "AI_GATEWAY_BASE_URL: ${AI_GATEWAY_BASE_URL:-UNSET}"
-echo "AI_GATEWAY_API_KEY: ${AI_GATEWAY_API_KEY:+SET}"
-echo "OPENAI_API_KEY: ${OPENAI_API_KEY:+SET}"
-echo "OPENAI_BASE_URL: ${OPENAI_BASE_URL:-UNSET}"
-echo "ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:+SET}"
-echo "CLOUDFLARE_AI_GATEWAY_API_KEY: ${CLOUDFLARE_AI_GATEWAY_API_KEY:+SET}"
-echo "================================="
-
 mkdir -p "$CONFIG_DIR"
 
 # ============================================================
@@ -153,9 +140,6 @@ if [ ! -f "$CONFIG_FILE" ]; then
         exit 1
     fi
 
-    echo "Auth configuration: $AUTH_ARGS"
-    echo "Running onboard..."
-    
     openclaw onboard --non-interactive --accept-risk \
         --mode local \
         $AUTH_ARGS \
@@ -177,11 +161,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
         exit 1
     fi
     
-    echo "Onboard completed successfully"
-    echo "Config file contents:"
-    cat "$CONFIG_FILE"
 else
-    echo "Using existing config"
 fi
 
 # ============================================================
@@ -196,12 +176,10 @@ node << 'EOFPATCH'
 const fs = require('fs');
 
 const configPath = '/root/.openclaw/openclaw.json';
-console.log('Patching config at:', configPath);
 let config = {};
 
 try {
     config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    console.log('Loaded existing config');
     
     // Check for known validation issues and fix them BEFORE anything else
     if (config.models?.providers) {
@@ -209,17 +187,15 @@ try {
             if (providerConfig && typeof providerConfig === 'object') {
                 // Fix missing models array (causes "expected array, received undefined")
                 if (!Array.isArray(providerConfig.models)) {
-                    console.log(`Fixing missing/invalid models array for provider: ${providerName}`);
                     providerConfig.models = [];
                 }
             }
         }
         // Write the fix immediately to prevent any race condition
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-        console.log('Wrote fixed config to disk');
     }
 } catch (e) {
-    console.log('Starting with empty config:', e.message);
+    // Starting with empty config
 }
 
 config.gateway = config.gateway || {};
@@ -255,7 +231,6 @@ if (process.env.ANTHROPIC_BASE_URL && process.env.ANTHROPIC_API_KEY) {
     if (!config.models.providers.anthropic.models) {
         config.models.providers.anthropic.models = [];
     }
-    console.log('Patched Anthropic provider with base URL:', baseUrl);
 }
 
 // If using OpenAI-compatible proxy (AI Gateway), remove incomplete Anthropic provider
@@ -266,7 +241,6 @@ const proxyApiKey = process.env.AI_GATEWAY_API_KEY || process.env.OPENAI_API_KEY
 if (proxyBaseUrl && proxyApiKey) {
     // Clean up any incomplete Anthropic provider that might cause validation errors
     if (config.models?.providers?.anthropic && !config.models.providers.anthropic.models) {
-        console.log('Removing incomplete Anthropic provider config (using OpenAI proxy instead)');
         delete config.models.providers.anthropic;
     }
     
@@ -297,10 +271,6 @@ if (proxyBaseUrl && proxyApiKey) {
     config.agents = config.agents || {};
     config.agents.defaults = config.agents.defaults || {};
     config.agents.defaults.model = { primary: 'openai/gemini-claude-sonnet-4-5-thinking' };
-    
-    console.log('Patched OpenAI provider with ProxyPal base URL:', baseUrl);
-    console.log('Configured models:', config.models.providers.openai.models.map(m => m.id).join(', '));
-    console.log('Default model:', config.agents.defaults.model.primary);
 }
 
 // Telegram configuration
@@ -352,8 +322,6 @@ if (process.env.SLACK_BOT_TOKEN && process.env.SLACK_APP_TOKEN) {
 }
 
 fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-console.log('Configuration patched successfully');
-console.log('Config:', JSON.stringify(config, null, 2));
 EOFPATCH
 
 # ============================================================
