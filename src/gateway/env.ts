@@ -24,16 +24,18 @@ export function buildEnvVars(env: MoltbotEnv): Record<string, string> {
   if (env.ANTHROPIC_API_KEY) envVars.ANTHROPIC_API_KEY = env.ANTHROPIC_API_KEY;
   if (env.OPENAI_API_KEY) envVars.OPENAI_API_KEY = env.OPENAI_API_KEY;
 
-  // Legacy AI Gateway support: AI_GATEWAY_BASE_URL + AI_GATEWAY_API_KEY
-  // When set, these override direct keys for backward compatibility
-  if (env.AI_GATEWAY_API_KEY && env.AI_GATEWAY_BASE_URL) {
+  // AI Gateway proxy support: prioritize over direct provider keys
+  if (env.AI_GATEWAY_BASE_URL && env.AI_GATEWAY_API_KEY) {
+    // Use AI Gateway as OpenAI-compatible proxy, ignore direct provider keys
     const normalizedBaseUrl = env.AI_GATEWAY_BASE_URL.replace(/\/+$/, '');
     envVars.AI_GATEWAY_BASE_URL = normalizedBaseUrl;
-    // Legacy path routes through Anthropic base URL
-    envVars.ANTHROPIC_BASE_URL = normalizedBaseUrl;
-    envVars.ANTHROPIC_API_KEY = env.AI_GATEWAY_API_KEY;
-  } else if (env.ANTHROPIC_BASE_URL) {
-    envVars.ANTHROPIC_BASE_URL = env.ANTHROPIC_BASE_URL;
+    envVars.AI_GATEWAY_API_KEY = env.AI_GATEWAY_API_KEY;
+    // Also set OPENAI_* for backwards compatibility
+    envVars.OPENAI_BASE_URL = normalizedBaseUrl;
+    envVars.OPENAI_API_KEY = env.AI_GATEWAY_API_KEY;
+  } else {
+    // Direct provider base URLs (only when no gateway configured)
+    if (env.ANTHROPIC_BASE_URL) envVars.ANTHROPIC_BASE_URL = env.ANTHROPIC_BASE_URL;
   }
 
   // Map MOLTBOT_GATEWAY_TOKEN to OPENCLAW_GATEWAY_TOKEN (container expects this name)
@@ -47,6 +49,7 @@ export function buildEnvVars(env: MoltbotEnv): Record<string, string> {
   if (env.SLACK_APP_TOKEN) envVars.SLACK_APP_TOKEN = env.SLACK_APP_TOKEN;
   if (env.CDP_SECRET) envVars.CDP_SECRET = env.CDP_SECRET;
   if (env.WORKER_URL) envVars.WORKER_URL = env.WORKER_URL;
+  if (env.BRAVE_API_KEY) envVars.BRAVE_API_KEY = env.BRAVE_API_KEY;
 
   return envVars;
 }

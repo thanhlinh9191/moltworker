@@ -17,9 +17,6 @@ CONFIG_DIR="/root/.openclaw"
 CONFIG_FILE="$CONFIG_DIR/openclaw.json"
 BACKUP_DIR="/data/moltbot"
 
-echo "Config directory: $CONFIG_DIR"
-echo "Backup directory: $BACKUP_DIR"
-
 mkdir -p "$CONFIG_DIR"
 
 # ============================================================
@@ -113,15 +110,34 @@ if [ ! -f "$CONFIG_FILE" ]; then
     echo "No existing config found, running openclaw onboard..."
 
     AUTH_ARGS=""
-    if [ -n "$CLOUDFLARE_AI_GATEWAY_API_KEY" ] && [ -n "$CF_AI_GATEWAY_ACCOUNT_ID" ] && [ -n "$CF_AI_GATEWAY_GATEWAY_ID" ]; then
+    if [ -n "$AI_GATEWAY_BASE_URL" ] && [ -n "$AI_GATEWAY_API_KEY" ]; then
+        # AI Gateway proxy mode: use as OpenAI-compatible endpoint
+        AUTH_ARGS="--auth-choice openai-api-key --openai-api-key $AI_GATEWAY_API_KEY --openai-base-url $AI_GATEWAY_BASE_URL"
+    elif [ -n "$CLOUDFLARE_AI_GATEWAY_API_KEY" ] && [ -n "$CF_AI_GATEWAY_ACCOUNT_ID" ] && [ -n "$CF_AI_GATEWAY_GATEWAY_ID" ]; then
         AUTH_ARGS="--auth-choice cloudflare-ai-gateway-api-key \
             --cloudflare-ai-gateway-account-id $CF_AI_GATEWAY_ACCOUNT_ID \
             --cloudflare-ai-gateway-gateway-id $CF_AI_GATEWAY_GATEWAY_ID \
             --cloudflare-ai-gateway-api-key $CLOUDFLARE_AI_GATEWAY_API_KEY"
     elif [ -n "$ANTHROPIC_API_KEY" ]; then
         AUTH_ARGS="--auth-choice apiKey --anthropic-api-key $ANTHROPIC_API_KEY"
+        if [ -n "$ANTHROPIC_BASE_URL" ]; then
+            AUTH_ARGS="$AUTH_ARGS --anthropic-base-url $ANTHROPIC_BASE_URL"
+        fi
     elif [ -n "$OPENAI_API_KEY" ]; then
         AUTH_ARGS="--auth-choice openai-api-key --openai-api-key $OPENAI_API_KEY"
+        if [ -n "$OPENAI_BASE_URL" ]; then
+            AUTH_ARGS="$AUTH_ARGS --openai-base-url $OPENAI_BASE_URL"
+        fi
+    fi
+
+    if [ -z "$AUTH_ARGS" ]; then
+        echo "ERROR: No API key configuration found."
+        echo "Please set one of:"
+        echo "  - AI_GATEWAY_BASE_URL + AI_GATEWAY_API_KEY (for OpenAI-compatible proxy)"
+        echo "  - CLOUDFLARE_AI_GATEWAY_API_KEY + CF_AI_GATEWAY_ACCOUNT_ID + CF_AI_GATEWAY_GATEWAY_ID"
+        echo "  - ANTHROPIC_API_KEY"
+        echo "  - OPENAI_API_KEY"
+        exit 1
     fi
 
     openclaw onboard --non-interactive --accept-risk \
@@ -132,10 +148,20 @@ if [ ! -f "$CONFIG_FILE" ]; then
         --skip-channels \
         --skip-skills \
         --skip-health
+    
+    ONBOARD_EXIT=$?
+    if [ $ONBOARD_EXIT -ne 0 ]; then
+        echo "ERROR: Onboard failed with exit code $ONBOARD_EXIT"
+        exit 1
+    fi
 
-    echo "Onboard completed"
+    # Verify onboard created a valid config
+    if [ ! -f "$CONFIG_FILE" ]; then
+        echo "ERROR: Onboard completed but no config file was created"
+        exit 1
+    fi
+    
 else
-    echo "Using existing config"
 fi
 
 # ============================================================
@@ -150,17 +176,32 @@ node << 'EOFPATCH'
 const fs = require('fs');
 
 const configPath = '/root/.openclaw/openclaw.json';
-console.log('Patching config at:', configPath);
 let config = {};
 
 try {
     config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    
+    // Check for known validation issues and fix them BEFORE anything else
+    if (config.models?.providers) {
+        for (const [providerName, providerConfig] of Object.entries(config.models.providers)) {
+            if (providerConfig && typeof providerConfig === 'object') {
+                // Fix missing models array (causes "expected array, received undefined")
+                if (!Array.isArray(providerConfig.models)) {
+                    providerConfig.models = [];
+                }
+            }
+        }
+        // Write the fix immediately to prevent any race condition
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    }
 } catch (e) {
-    console.log('Starting with empty config');
+    // Starting with empty config
 }
 
 config.gateway = config.gateway || {};
 config.channels = config.channels || {};
+config.models = config.models || {};
+config.models.providers = config.models.providers || {};
 
 // Gateway configuration
 config.gateway.port = 18789;
@@ -172,10 +213,10 @@ if (process.env.OPENCLAW_GATEWAY_TOKEN) {
     config.gateway.auth.token = process.env.OPENCLAW_GATEWAY_TOKEN;
 }
 
-if (process.env.OPENCLAW_DEV_MODE === 'true') {
-    config.gateway.controlUi = config.gateway.controlUi || {};
-    config.gateway.controlUi.allowInsecureAuth = true;
-}
+// Always set allowInsecureAuth explicitly to ensure it matches current env
+// This is important when restoring config from R2 that may have had DEV_MODE=true previously
+config.gateway.controlUi = config.gateway.controlUi || {};
+config.gateway.controlUi.allowInsecureAuth = (process.env.OPENCLAW_DEV_MODE === 'true');
 
 // Legacy AI Gateway base URL override — patch into provider config
 // (only needed when using AI_GATEWAY_BASE_URL, not native cloudflare-ai-gateway)
@@ -186,7 +227,50 @@ if (process.env.ANTHROPIC_BASE_URL && process.env.ANTHROPIC_API_KEY) {
     config.models.providers.anthropic = config.models.providers.anthropic || {};
     config.models.providers.anthropic.baseUrl = baseUrl;
     config.models.providers.anthropic.apiKey = process.env.ANTHROPIC_API_KEY;
-    console.log('Patched Anthropic provider with base URL:', baseUrl);
+    // Ensure models array exists (required by OpenClaw)
+    if (!config.models.providers.anthropic.models) {
+        config.models.providers.anthropic.models = [];
+    }
+}
+
+// If using OpenAI-compatible proxy (AI Gateway), remove incomplete Anthropic provider
+// This prevents config validation errors from old/restored configs
+// Check for AI_GATEWAY_BASE_URL first (explicit gateway), then fall back to OPENAI_BASE_URL
+const proxyBaseUrl = process.env.AI_GATEWAY_BASE_URL || process.env.OPENAI_BASE_URL;
+const proxyApiKey = process.env.AI_GATEWAY_API_KEY || process.env.OPENAI_API_KEY;
+if (proxyBaseUrl && proxyApiKey) {
+    // Clean up any incomplete Anthropic provider that might cause validation errors
+    if (config.models?.providers?.anthropic && !config.models.providers.anthropic.models) {
+        delete config.models.providers.anthropic;
+    }
+    
+    const baseUrl = proxyBaseUrl.replace(/\/+$/, '');
+    config.models = config.models || {};
+    config.models.providers = config.models.providers || {};
+    config.models.providers.openai = config.models.providers.openai || {};
+    config.models.providers.openai.baseUrl = baseUrl;
+    config.models.providers.openai.apiKey = proxyApiKey;
+    config.models.providers.openai.api = 'openai-completions';  // Required for custom OpenAI-compatible proxies
+    
+    // Configure available models for the proxy - ALL ProxyPal models
+    // Fetched from: curl https://proxypal-api.stackdeep.dev/v1/models
+    config.models.providers.openai.models = [
+        { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', contextWindow: 1000000, reasoning: false, input: ['text'] },
+        { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', contextWindow: 1000000, reasoning: false, input: ['text'] },
+        { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash', contextWindow: 1000000, reasoning: false, input: ['text'] },
+        { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro', contextWindow: 1000000, reasoning: false, input: ['text'] },
+        { id: 'gemini-3-pro-image-preview', name: 'Gemini 3 Pro Image', contextWindow: 1000000, reasoning: false, input: ['text', 'image'] },
+        { id: 'gemini-claude-opus-4-5-thinking', name: 'Claude Opus 4.5 Thinking', contextWindow: 1000000, reasoning: true, input: ['text'] },
+        { id: 'gemini-claude-sonnet-4-5', name: 'Claude Sonnet 4.5', contextWindow: 1000000, reasoning: false, input: ['text'] },
+        { id: 'gemini-claude-sonnet-4-5-thinking', name: 'Claude Sonnet 4.5 Thinking', contextWindow: 1000000, reasoning: true, input: ['text'] },
+        { id: 'gpt-oss-120b-medium', name: 'GPT OSS 120B', contextWindow: 1000000, reasoning: false, input: ['text'] },
+        { id: 'tab_flash_lite_preview', name: 'Tab Flash Lite', contextWindow: 1000000, reasoning: false, input: ['text'] }
+    ];
+    
+    // Set default model to gemini-claude-sonnet-4-5-thinking
+    config.agents = config.agents || {};
+    config.agents.defaults = config.agents.defaults || {};
+    config.agents.defaults.model = { primary: 'openai/gemini-claude-sonnet-4-5-thinking' };
 }
 
 // Telegram configuration
@@ -201,6 +285,19 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
     } else if (telegramDmPolicy === 'open') {
         config.channels.telegram.allowFrom = ['*'];
     }
+}
+
+// web search via Brave
+if (process.env.BRAVE_API_KEY) {
+  config.tools = config.tools || {};
+  config.tools.web = config.tools.web || {};
+  config.tools.web.search = config.tools.web.search || {};
+  config.tools.web.search.enabled = true;
+  config.tools.web.search.provider = 'brave';
+  config.tools.web.search.maxResults = 5;
+  config.tools.web.search.timeoutSeconds = 20;
+  config.tools.web.search.cacheTtlMinutes = 15;
+  config.tools.web.search.apiKey = process.env.BRAVE_API_KEY;
 }
 
 // Discord configuration
@@ -225,8 +322,6 @@ if (process.env.SLACK_BOT_TOKEN && process.env.SLACK_APP_TOKEN) {
 }
 
 fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-console.log('Configuration patched successfully');
-console.log('Config:', JSON.stringify(config, null, 2));
 EOFPATCH
 
 # ============================================================
