@@ -276,20 +276,21 @@ if (proxyBaseUrl && proxyApiKey) {
     config.models.providers.openai = config.models.providers.openai || {};
     config.models.providers.openai.baseUrl = baseUrl;
     config.models.providers.openai.apiKey = proxyApiKey;
+    config.models.providers.openai.api = 'openai-completions';  // Required for custom OpenAI-compatible proxies
     
     // Configure available models for the proxy - ALL ProxyPal models
     // Fetched from: curl https://proxypal-api.stackdeep.dev/v1/models
     config.models.providers.openai.models = [
-        { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', contextWindow: 1000000 },
-        { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', contextWindow: 1000000 },
-        { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash', contextWindow: 1000000 },
-        { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro', contextWindow: 1000000 },
-        { id: 'gemini-3-pro-image-preview', name: 'Gemini 3 Pro Image', contextWindow: 1000000 },
-        { id: 'gemini-claude-opus-4-5-thinking', name: 'Claude Opus 4.5 Thinking', contextWindow: 1000000 },
-        { id: 'gemini-claude-sonnet-4-5', name: 'Claude Sonnet 4.5', contextWindow: 1000000 },
-        { id: 'gemini-claude-sonnet-4-5-thinking', name: 'Claude Sonnet 4.5 Thinking', contextWindow: 1000000 },
-        { id: 'gpt-oss-120b-medium', name: 'GPT OSS 120B', contextWindow: 1000000 },
-        { id: 'tab_flash_lite_preview', name: 'Tab Flash Lite', contextWindow: 1000000 }
+        { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', contextWindow: 1000000, reasoning: false, input: ['text'] },
+        { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', contextWindow: 1000000, reasoning: false, input: ['text'] },
+        { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash', contextWindow: 1000000, reasoning: false, input: ['text'] },
+        { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro', contextWindow: 1000000, reasoning: false, input: ['text'] },
+        { id: 'gemini-3-pro-image-preview', name: 'Gemini 3 Pro Image', contextWindow: 1000000, reasoning: false, input: ['text', 'image'] },
+        { id: 'gemini-claude-opus-4-5-thinking', name: 'Claude Opus 4.5 Thinking', contextWindow: 1000000, reasoning: true, input: ['text'] },
+        { id: 'gemini-claude-sonnet-4-5', name: 'Claude Sonnet 4.5', contextWindow: 1000000, reasoning: false, input: ['text'] },
+        { id: 'gemini-claude-sonnet-4-5-thinking', name: 'Claude Sonnet 4.5 Thinking', contextWindow: 1000000, reasoning: true, input: ['text'] },
+        { id: 'gpt-oss-120b-medium', name: 'GPT OSS 120B', contextWindow: 1000000, reasoning: false, input: ['text'] },
+        { id: 'tab_flash_lite_preview', name: 'Tab Flash Lite', contextWindow: 1000000, reasoning: false, input: ['text'] }
     ];
     
     // Disable dynamic model fetching from API - use ONLY static list above
