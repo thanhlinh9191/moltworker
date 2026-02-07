@@ -257,7 +257,7 @@ if (proxyBaseUrl && proxyApiKey) {
     try {
         const modelsUrl = baseUrl + '/models';
         const result = execSync(
-            \`curl -s -H "Authorization: Bearer \${proxyApiKey}" "\${modelsUrl}"\`,
+            `curl -s -H "Authorization: Bearer ${proxyApiKey}" "${modelsUrl}"`,
             { encoding: 'utf8', timeout: 10000 }
         );
         const modelsResponse = JSON.parse(result);
