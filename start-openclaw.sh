@@ -276,11 +276,25 @@ if (proxyBaseUrl && proxyApiKey) {
     config.models.providers.openai = config.models.providers.openai || {};
     config.models.providers.openai.baseUrl = baseUrl;
     config.models.providers.openai.apiKey = proxyApiKey;
-    // Ensure models array exists (required by OpenClaw)
-    if (!config.models.providers.openai.models) {
-        config.models.providers.openai.models = [];
-    }
-    console.log('Patched OpenAI provider with proxy base URL:', baseUrl);
+    
+    // Configure available models for the proxy (with 1M token context window)
+    config.models.providers.openai.models = [
+        { id: 'gpt-5.2', name: 'GPT-5.2', contextWindow: 1000000 },
+        { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro', contextWindow: 1000000 },
+        { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash', contextWindow: 1000000 },
+        { id: 'gemini-3-pro-image-preview', name: 'Gemini 3 Pro Image', contextWindow: 1000000 },
+        { id: 'gemini-claude-opus-4-5-thinking', name: 'Claude Opus Thinking', contextWindow: 1000000 },
+        { id: 'gemini-claude-sonnet-4-5-thinking', name: 'Claude Sonnet Thinking', contextWindow: 1000000 }
+    ];
+    
+    // Set default model to gemini-claude-sonnet-4-5-thinking
+    config.agents = config.agents || {};
+    config.agents.defaults = config.agents.defaults || {};
+    config.agents.defaults.model = { primary: 'openai/gemini-claude-sonnet-4-5-thinking' };
+    
+    console.log('Patched OpenAI provider with ProxyPal base URL:', baseUrl);
+    console.log('Configured models:', config.models.providers.openai.models.map(m => m.id).join(', '));
+    console.log('Default model:', config.agents.defaults.model.primary);
 }
 
 // Telegram configuration
