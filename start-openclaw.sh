@@ -293,9 +293,6 @@ if (proxyBaseUrl && proxyApiKey) {
         { id: 'tab_flash_lite_preview', name: 'Tab Flash Lite', contextWindow: 1000000, reasoning: false, input: ['text'] }
     ];
     
-    // Disable dynamic model fetching from API - use ONLY static list above
-    config.models.providers.openai.disableModelDiscovery = true;
-    
     // Set default model to gemini-claude-sonnet-4-5-thinking
     config.agents = config.agents || {};
     config.agents.defaults = config.agents.defaults || {};
