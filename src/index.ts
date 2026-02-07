@@ -360,13 +360,17 @@ app.all('*', async (c) => {
       if (debugLogs) {
         console.log('[WS] Client closed:', event.code, event.reason);
       }
-      containerWs.close(event.code, event.reason);
+      // Sanitize close code: 1006 is reserved for abnormal closure and cannot be sent explicitly
+      const closeCode = event.code === 1006 ? 1011 : event.code;
+      containerWs.close(closeCode, event.reason);
     });
 
     containerWs.addEventListener('close', (event) => {
       if (debugLogs) {
         console.log('[WS] Container closed:', event.code, event.reason);
       }
+      // Sanitize close code: 1006 is reserved for abnormal closure and cannot be sent explicitly
+      const closeCode = event.code === 1006 ? 1011 : event.code;
       // Transform the close reason (truncate to 123 bytes max for WebSocket spec)
       let reason = transformErrorMessage(event.reason, url.host);
       if (reason.length > 123) {
@@ -375,7 +379,7 @@ app.all('*', async (c) => {
       if (debugLogs) {
         console.log('[WS] Transformed close reason:', reason);
       }
-      serverWs.close(event.code, reason);
+      serverWs.close(closeCode, reason);
     });
 
     // Handle errors

@@ -125,10 +125,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
     AUTH_ARGS=""
     if [ -n "$AI_GATEWAY_BASE_URL" ] && [ -n "$AI_GATEWAY_API_KEY" ]; then
         # AI Gateway proxy mode: use as OpenAI-compatible endpoint
-        AUTH_ARGS="--auth-choice openai-api-key --openai-api-key $AI_GATEWAY_API_KEY"
-        if [ -n "$OPENAI_BASE_URL" ]; then
-            AUTH_ARGS="$AUTH_ARGS --openai-base-url $OPENAI_BASE_URL"
-        fi
+        AUTH_ARGS="--auth-choice openai-api-key --openai-api-key $AI_GATEWAY_API_KEY --openai-base-url $AI_GATEWAY_BASE_URL"
     elif [ -n "$CLOUDFLARE_AI_GATEWAY_API_KEY" ] && [ -n "$CF_AI_GATEWAY_ACCOUNT_ID" ] && [ -n "$CF_AI_GATEWAY_GATEWAY_ID" ]; then
         AUTH_ARGS="--auth-choice cloudflare-ai-gateway-api-key \
             --cloudflare-ai-gateway-account-id $CF_AI_GATEWAY_ACCOUNT_ID \
@@ -263,19 +260,22 @@ if (process.env.ANTHROPIC_BASE_URL && process.env.ANTHROPIC_API_KEY) {
 
 // If using OpenAI-compatible proxy (AI Gateway), remove incomplete Anthropic provider
 // This prevents config validation errors from old/restored configs
-if (process.env.OPENAI_BASE_URL && process.env.OPENAI_API_KEY) {
+// Check for AI_GATEWAY_BASE_URL first (explicit gateway), then fall back to OPENAI_BASE_URL
+const proxyBaseUrl = process.env.AI_GATEWAY_BASE_URL || process.env.OPENAI_BASE_URL;
+const proxyApiKey = process.env.AI_GATEWAY_API_KEY || process.env.OPENAI_API_KEY;
+if (proxyBaseUrl && proxyApiKey) {
     // Clean up any incomplete Anthropic provider that might cause validation errors
     if (config.models?.providers?.anthropic && !config.models.providers.anthropic.models) {
         console.log('Removing incomplete Anthropic provider config (using OpenAI proxy instead)');
         delete config.models.providers.anthropic;
     }
     
-    const baseUrl = process.env.OPENAI_BASE_URL.replace(/\/+$/, '');
+    const baseUrl = proxyBaseUrl.replace(/\/+$/, '');
     config.models = config.models || {};
     config.models.providers = config.models.providers || {};
     config.models.providers.openai = config.models.providers.openai || {};
     config.models.providers.openai.baseUrl = baseUrl;
-    config.models.providers.openai.apiKey = process.env.OPENAI_API_KEY;
+    config.models.providers.openai.apiKey = proxyApiKey;
     // Ensure models array exists (required by OpenClaw)
     if (!config.models.providers.openai.models) {
         config.models.providers.openai.models = [];

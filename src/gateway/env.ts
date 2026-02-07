@@ -29,8 +29,10 @@ export function buildEnvVars(env: MoltbotEnv): Record<string, string> {
     // Use AI Gateway as OpenAI-compatible proxy, ignore direct provider keys
     const normalizedBaseUrl = env.AI_GATEWAY_BASE_URL.replace(/\/+$/, '');
     envVars.AI_GATEWAY_BASE_URL = normalizedBaseUrl;
+    envVars.AI_GATEWAY_API_KEY = env.AI_GATEWAY_API_KEY;
+    // Also set OPENAI_* for backwards compatibility
     envVars.OPENAI_BASE_URL = normalizedBaseUrl;
-    envVars.OPENAI_API_KEY = env.AI_GATEWAY_API_KEY; // Use gateway key as OpenAI key
+    envVars.OPENAI_API_KEY = env.AI_GATEWAY_API_KEY;
   } else {
     // Direct provider base URLs (only when no gateway configured)
     if (env.ANTHROPIC_BASE_URL) envVars.ANTHROPIC_BASE_URL = env.ANTHROPIC_BASE_URL;
