@@ -2,7 +2,7 @@
 
 This document tracks all custom changes made to the moltworker codebase since commit `8c582a2e95193296a694c43f82930d0a869ff67e`. Use this to reapply changes if the source is overwritten with the official Cloudflare moltworker.
 
-**Last updated:** February 7, 2026 (removed debug logs)
+**Last updated:** February 7, 2026 (fixed start-openclaw.sh syntax error)
 
 ## Summary
 
@@ -12,6 +12,7 @@ These changes add support for:
 - **Gateway token authentication** for device CLI commands
 - **WebSocket close code sanitization** (fixes 1006 → 1011)
 - **Config validation fixes** (prevents "expected array" errors)
+- **Shell script syntax fix** (removed empty `else` block in start-openclaw.sh)
 
 ---
 
@@ -337,3 +338,32 @@ Set these in Cloudflare Worker secrets:
 3. **Models must have** `id`, `name`, `contextWindow`, and optionally `reasoning`, `input`
 4. **WebSocket close code 1006** must be sanitized to 1011 (1006 is reserved)
 5. **No debug logs** - All console.log and echo debug statements have been removed
+6. **Empty `else` blocks are invalid** - Bash syntax error if `else` has no commands
+
+---
+
+## Shell Script Fixes
+
+### `start-openclaw.sh` - Empty else block fix
+
+The onboard section had an empty `else` block which causes a syntax error:
+
+**OLD (broken):**
+```bash
+    if [ ! -f "$CONFIG_FILE" ]; then
+        echo "ERROR: Onboard completed but no config file was created"
+        exit 1
+    fi
+    
+else
+fi
+```
+
+**NEW (fixed):**
+```bash
+    if [ ! -f "$CONFIG_FILE" ]; then
+        echo "ERROR: Onboard completed but no config file was created"
+        exit 1
+    fi
+fi
+```

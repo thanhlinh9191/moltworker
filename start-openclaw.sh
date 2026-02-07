@@ -160,8 +160,6 @@ if [ ! -f "$CONFIG_FILE" ]; then
         echo "ERROR: Onboard completed but no config file was created"
         exit 1
     fi
-    
-else
 fi
 
 # ============================================================
