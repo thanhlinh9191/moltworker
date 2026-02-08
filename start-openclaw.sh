@@ -250,69 +250,29 @@ if (proxyBaseUrl && proxyApiKey) {
     config.models.providers.openai.apiKey = proxyApiKey;
     config.models.providers.openai.api = 'openai-completions';  // Required for custom OpenAI-compatible proxies
     
-    // Dynamically fetch models from the proxy API
-    // We'll do this synchronously using child_process since we're in a startup script
-    const { execSync } = require('child_process');
-    let fetchedModels = [];
-    try {
-        const modelsUrl = baseUrl + '/models';
-        const result = execSync(
-            `curl -s -H "Authorization: Bearer ${proxyApiKey}" "${modelsUrl}"`,
-            { encoding: 'utf8', timeout: 10000 }
-        );
-        const modelsResponse = JSON.parse(result);
-        if (modelsResponse.data && Array.isArray(modelsResponse.data)) {
-            fetchedModels = modelsResponse.data.map(m => {
-                const id = m.id;
-                // Determine properties based on model name patterns
-                const isThinking = id.includes('thinking');
-                const isImage = id.includes('image');
-                const isClaude = id.includes('claude');
-                const isKimi = id.includes('kimi');
-                const isGemini = id.includes('gemini');
-                
-                // Set context window based on model type
-                let contextWindow = 128000; // default
-                if (isGemini) contextWindow = 1000000;
-                else if (isClaude) contextWindow = 200000;
-                else if (isKimi) contextWindow = 128000;
-                
-                // Generate friendly name from id
-                const name = id.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
-                    .replace(/(\d)\.(\d)/g, '$1.$2'); // preserve version numbers
-                
-                return {
-                    id,
-                    name: m.name || name,
-                    contextWindow: m.context_length || contextWindow,
-                    reasoning: isThinking,
-                    input: isImage ? ['text', 'image'] : ['text']
-                };
-            });
-        }
-    } catch (e) {
-        // Failed to fetch models, will use fallback
-    }
+    // Configure models for the proxy - hardcoded list (dynamic fetch disabled for stability)
+    // To update: curl -s -H "Authorization: Bearer $API_KEY" https://proxypal-api.stackdeep.dev/v1/models | jq '.data[].id'
+    // Last updated: 2026-02-08
+    config.models.providers.openai.models = [
+        { id: 'claude-sonnet-4-5-thinking', name: 'Claude Sonnet 4.5 Thinking', contextWindow: 200000, reasoning: true, input: ['text'] },
+        { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5', contextWindow: 200000, reasoning: false, input: ['text'] },
+        { id: 'claude-opus-4-5-thinking', name: 'Claude Opus 4.5 Thinking', contextWindow: 200000, reasoning: true, input: ['text'] },
+        { id: 'gemini-3-flash', name: 'Gemini 3 Flash', contextWindow: 1000000, reasoning: false, input: ['text'] },
+        { id: 'gemini-3-pro-image', name: 'Gemini 3 Pro Image', contextWindow: 1000000, reasoning: false, input: ['text', 'image'] },
+        { id: 'gemini-3-pro-high', name: 'Gemini 3 Pro High', contextWindow: 1000000, reasoning: false, input: ['text'] },
+        { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', contextWindow: 1000000, reasoning: false, input: ['text'] },
+        { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', contextWindow: 1000000, reasoning: false, input: ['text'] },
+        { id: 'kimi-k2', name: 'Kimi K2', contextWindow: 128000, reasoning: false, input: ['text'] },
+        { id: 'kimi-k2-thinking', name: 'Kimi K2 Thinking', contextWindow: 128000, reasoning: true, input: ['text'] },
+    { id: 'kimi-k2.5', name: 'Kimi K2.5', contextWindow: 256000, reasoning: false, input: ['text'] },
+        { id: 'gpt-oss-120b-medium', name: 'GPT OSS 120B Medium', contextWindow: 128000, reasoning: false, input: ['text'] },
+        { id: 'tab_flash_lite_preview', name: 'Tab Flash Lite Preview', contextWindow: 128000, reasoning: false, input: ['text'] }
+    ];
     
-    // Use fetched models or fallback to a minimal default
-    if (fetchedModels.length > 0) {
-        config.models.providers.openai.models = fetchedModels;
-    } else {
-        // Fallback: minimal model list if API fetch fails
-        config.models.providers.openai.models = [
-            { id: 'claude-sonnet-4-5-thinking', name: 'Claude Sonnet 4.5 Thinking', contextWindow: 200000, reasoning: true, input: ['text'] },
-            { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', contextWindow: 1000000, reasoning: false, input: ['text'] }
-        ];
-    }
-    
-    // Set default model - prefer claude-sonnet-4-5-thinking if available, else first model
-    const defaultModelId = fetchedModels.find(m => m.id === 'claude-sonnet-4-5-thinking')?.id 
-        || fetchedModels.find(m => m.id.includes('sonnet'))?.id
-        || fetchedModels[0]?.id 
-        || 'claude-sonnet-4-5-thinking';
+    // Set default model
     config.agents = config.agents || {};
     config.agents.defaults = config.agents.defaults || {};
-    config.agents.defaults.model = { primary: 'openai/' + defaultModelId };
+    config.agents.defaults.model = { primary: 'openai/claude-sonnet-4-5-thinking' };
 }
 
 // Telegram configuration
@@ -379,16 +339,20 @@ echo "Dev mode: ${OPENCLAW_DEV_MODE:-false}"
 
 # Validate config before starting
 echo "Validating config..."
-if ! node -e "const c = require('$CONFIG_FILE'); console.log('Config loaded, providers:', Object.keys(c.models?.providers || {}))"; then
+if ! node -e "const c = require('$CONFIG_FILE'); console.log('Config loaded, providers:', Object.keys(c.models?.providers || {})); console.log('Default model:', c.agents?.defaults?.model?.primary); console.log('Models count:', c.models?.providers?.openai?.models?.length || 0)"; then
     echo "ERROR: Config validation failed!"
     cat "$CONFIG_FILE"
     exit 1
 fi
 
+# Show config summary
+echo "Config summary:"
+node -e "const c = require('$CONFIG_FILE'); console.log(JSON.stringify({providers: Object.keys(c.models?.providers || {}), defaultModel: c.agents?.defaults?.model?.primary, modelsCount: c.models?.providers?.openai?.models?.length || 0}, null, 2))"
+
 if [ -n "$OPENCLAW_GATEWAY_TOKEN" ]; then
     echo "Starting gateway with token auth..."
-    exec openclaw gateway --port 18789 --verbose --allow-unconfigured --bind lan --token "$OPENCLAW_GATEWAY_TOKEN"
+    exec openclaw gateway --port 18789 --verbose --allow-unconfigured --bind lan --token "$OPENCLAW_GATEWAY_TOKEN" 2>&1
 else
     echo "Starting gateway with device pairing (no token)..."
-    exec openclaw gateway --port 18789 --verbose --allow-unconfigured --bind lan
+    exec openclaw gateway --port 18789 --verbose --allow-unconfigured --bind lan 2>&1
 fi
