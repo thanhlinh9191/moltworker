@@ -2,7 +2,7 @@
 
 This document tracks all custom changes made to the moltworker codebase since commit `8c582a2e95193296a694c43f82930d0a869ff67e`. Use this to reapply changes if the source is overwritten with the official Cloudflare moltworker.
 
-**Last updated:** February 7, 2026 (fixed start-openclaw.sh syntax error)
+**Last updated:** February 8, 2026 (reverted to hardcoded models for stability, updated Kimi K2.5 context to 256k)
 
 ## Summary
 
@@ -250,7 +250,10 @@ config.gateway.controlUi = config.gateway.controlUi || {};
 config.gateway.controlUi.allowInsecureAuth = (process.env.OPENCLAW_DEV_MODE === 'true');
 ```
 
-#### G. Add ProxyPal/OpenAI proxy configuration with DYNAMIC MODEL FETCHING (MAIN FEATURE):
+#### G. Add ProxyPal/OpenAI proxy configuration with HARDCODED MODEL LIST:
+
+**Note:** Dynamic model fetching was attempted but caused Cloudflare container instability ("Network connection lost" errors). Using hardcoded model list for stability.
+
 ```javascript
 // If using OpenAI-compatible proxy (AI Gateway), remove incomplete Anthropic provider
 // Check for AI_GATEWAY_BASE_URL first (explicit gateway), then fall back to OPENAI_BASE_URL
@@ -270,78 +273,47 @@ if (proxyBaseUrl && proxyApiKey) {
     config.models.providers.openai.apiKey = proxyApiKey;
     config.models.providers.openai.api = 'openai-completions';  // Required for custom OpenAI-compatible proxies
     
-    // Dynamically fetch models from the proxy API
-    const { execSync } = require('child_process');
-    let fetchedModels = [];
-    try {
-        const modelsUrl = baseUrl + '/models';
-        const result = execSync(
-            `curl -s -H "Authorization: Bearer ${proxyApiKey}" "${modelsUrl}"`,
-            { encoding: 'utf8', timeout: 10000 }
-        );
-        const modelsResponse = JSON.parse(result);
-        if (modelsResponse.data && Array.isArray(modelsResponse.data)) {
-            fetchedModels = modelsResponse.data.map(m => {
-                const id = m.id;
-                // Determine properties based on model name patterns
-                const isThinking = id.includes('thinking');
-                const isImage = id.includes('image');
-                const isClaude = id.includes('claude');
-                const isKimi = id.includes('kimi');
-                const isGemini = id.includes('gemini');
-                
-                // Set context window based on model type
-                let contextWindow = 128000; // default
-                if (isGemini) contextWindow = 1000000;
-                else if (isClaude) contextWindow = 200000;
-                else if (isKimi) contextWindow = 128000;
-                
-                // Generate friendly name from id
-                const name = id.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
-                    .replace(/(\d)\.(\d)/g, '$1.$2');
-                
-                return {
-                    id,
-                    name: m.name || name,
-                    contextWindow: m.context_length || contextWindow,
-                    reasoning: isThinking,
-                    input: isImage ? ['text', 'image'] : ['text']
-                };
-            });
-        }
-    } catch (e) {
-        // Failed to fetch models, will use fallback
-    }
-    
-    // Use fetched models or fallback to a minimal default
-    if (fetchedModels.length > 0) {
-        config.models.providers.openai.models = fetchedModels;
-    } else {
-        // Fallback: minimal model list if API fetch fails
-        config.models.providers.openai.models = [
-            { id: 'claude-sonnet-4-5-thinking', name: 'Claude Sonnet 4.5 Thinking', contextWindow: 200000, reasoning: true, input: ['text'] },
-            { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', contextWindow: 1000000, reasoning: false, input: ['text'] }
-        ];
-    }
-    
-    // Set default model - prefer claude-sonnet-4-5-thinking if available, else first model
-    const defaultModelId = fetchedModels.find(m => m.id === 'claude-sonnet-4-5-thinking')?.id 
-        || fetchedModels.find(m => m.id.includes('sonnet'))?.id
-        || fetchedModels[0]?.id 
-        || 'claude-sonnet-4-5-thinking';
+    // Hardcoded model list for ProxyPal (fetched from API on 2026-02-08)
+    // Dynamic fetching was disabled due to container stability issues
+    config.models.providers.openai.models = [
+        { id: 'claude-sonnet-4-5-thinking', name: 'Claude Sonnet 4.5 Thinking', contextWindow: 200000, reasoning: true, input: ['text'] },
+        { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5', contextWindow: 200000, reasoning: false, input: ['text'] },
+        { id: 'claude-opus-4-5-thinking', name: 'Claude Opus 4.5 Thinking', contextWindow: 200000, reasoning: true, input: ['text'] },
+        { id: 'gemini-3-flash', name: 'Gemini 3 Flash', contextWindow: 1000000, reasoning: false, input: ['text'] },
+        { id: 'gemini-3-pro-image', name: 'Gemini 3 Pro Image', contextWindow: 1000000, reasoning: false, input: ['text', 'image'] },
+        { id: 'gemini-3-pro-high', name: 'Gemini 3 Pro High', contextWindow: 1000000, reasoning: false, input: ['text'] },
+        { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', contextWindow: 1000000, reasoning: false, input: ['text'] },
+        { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', contextWindow: 1000000, reasoning: false, input: ['text'] },
+        { id: 'kimi-k2', name: 'Kimi K2', contextWindow: 128000, reasoning: false, input: ['text'] },
+        { id: 'kimi-k2-thinking', name: 'Kimi K2 Thinking', contextWindow: 128000, reasoning: true, input: ['text'] },
+        { id: 'kimi-k2.5', name: 'Kimi K2.5', contextWindow: 256000, reasoning: false, input: ['text'] },
+        { id: 'gpt-oss-120b-medium', name: 'GPT OSS 120B Medium', contextWindow: 128000, reasoning: false, input: ['text'] },
+        { id: 'tab_flash_lite_preview', name: 'Tab Flash Lite Preview', contextWindow: 128000, reasoning: false, input: ['text'] }
+    ];
     config.agents = config.agents || {};
     config.agents.defaults = config.agents.defaults || {};
-    config.agents.defaults.model = { primary: 'openai/' + defaultModelId };
+    config.agents.defaults.model = { primary: 'openai/claude-sonnet-4-5-thinking' };
 }
 ```
 
-**Key features of dynamic model fetching:**
-- Fetches models from `{baseUrl}/models` endpoint at container startup
-- Auto-detects `reasoning: true` for models with "thinking" in the name
-- Auto-detects `input: ['text', 'image']` for models with "image" in the name
-- Sets appropriate context windows based on model type (Gemini=1M, Claude=200K, others=128K)
-- Falls back to minimal hardcoded list if API is unreachable
-- Auto-selects best default model (prefers claude-sonnet-4-5-thinking)
+**Current model list (13 models from ProxyPal API):**
+| Model ID | Context Window | Reasoning | Notes |
+|----------|----------------|-----------|-------|
+| claude-sonnet-4-5-thinking | 200k | ✓ | Default model |
+| claude-sonnet-4-5 | 200k | | |
+| claude-opus-4-5-thinking | 200k | ✓ | |
+| gemini-3-flash | 1M | | |
+| gemini-3-pro-image | 1M | | Supports image input |
+| gemini-3-pro-high | 1M | | |
+| gemini-2.5-flash | 1M | | |
+| gemini-2.5-flash-lite | 1M | | |
+| kimi-k2 | 128k | | |
+| kimi-k2-thinking | 128k | ✓ | |
+| kimi-k2.5 | 256k | | |
+| gpt-oss-120b-medium | 128k | | |
+| tab_flash_lite_preview | 128k | | |
+
+**To update model list:** Call `curl -s -H "Authorization: Bearer <API_KEY>" https://proxypal-api.stackdeep.dev/v1/models | jq '.data[].id'` and update the hardcoded list in `start-openclaw.sh`.
 
 #### H. Add Brave web search configuration:
 ```javascript
